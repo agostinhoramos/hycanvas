@@ -1,0 +1,75 @@
+# HyCanvas quick start: the published image plus a bundled Postgres.
+#
+#   mkdir hycanvas && cd hycanvas
+#   curl -fsSLO https://raw.githubusercontent.com/hyscaler/HyCanvas/development/docker/docker-compose.yml
+#   echo "JWT_SECRET=$(openssl rand -hex 32)" > .env
+#   docker compose up -d
+#
+# Then open http://localhost:8005 and create the first account. The app applies
+# its database migrations on boot. Update later with
+# `docker compose pull && docker compose up -d`.
+#
+# This file is for trying HyCanvas on one machine. For a managed Postgres, a
+# reverse proxy with TLS, or S3 storage, see DOCKER_SETUP.md and the root
+# docker-compose.yml (bring-your-own Postgres).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hycanvas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hycanvas}
+      POSTGRES_DB: hycanvas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hycanvas -d hycanvas"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # The app runs as uid 10001, never root. Storage created by an earlier image
+  # (or a bind-mount folder Docker created) is root-owned, so this one-shot step
+  # checks the whole tree, repairing mismatched ownership. It only
+  # changes ownership of the storage directory; the app itself never runs as root.
+  storage-init:
+    image: hycanvas/hycanvas:latest
+    user: "0"
+    entrypoint: ["sh", "-c", "find /app/.data/storage -xdev \\( ! -user 10001 -o ! -group 0 \\) -exec chown -h 10001:0 {} +"]
+    restart: "no"
+    volumes:
+      - storage:/app/.data/storage
+
+  app:
+    image: hycanvas/hycanvas:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    ports:
+      - "${HYCANVAS_PORT:-8005}:8005"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://hycanvas:${POSTGRES_PASSWORD:-hycanvas}@db:5432/hycanvas?schema=public
+      # Required: the app refuses to start without it. The quick start writes
+      # one into .env; keep it stable, or every session is signed out.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env, for example with openssl rand -hex 32}
+      # Served over plain http://localhost here, so cookies must not be Secure or
+      # the browser drops the session. Behind a TLS proxy, set this to "true"
+      # and APP_URL to your https origin.
+      COOKIE_SECURE: "false"
+      # Extra fonts for the exports the server renders (video, API PNG/JPEG).
+      # The stock template fonts are built in; for any other font, put its
+      # files in ./fonts as Family-Weight.ttf (for example Lobster-400.ttf)
+      # and uncomment this line and the ./fonts volume below.
+      # FONTS_DIR: /app/fonts
+    volumes:
+      - storage:/app/.data/storage
+      # - ./fonts:/app/fonts:ro
+
+volumes:
+  pgdata:
+  storage:

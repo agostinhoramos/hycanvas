@@ -1,0 +1,84 @@
+# HyCanvas - self-host stack (build from source), bundled Postgres.
+#
+#   cp .env.example .env   # set JWT_SECRET (openssl rand -hex 32)
+#   docker compose build
+#   docker compose up -d
+#
+# Builds the application image from this repo (Dockerfile) instead of pulling
+# hycanvas/hycanvas:latest. Migrations run on boot. Open http://localhost:${HYCANVAS_PORT}.
+# After git pull (your origin): docker compose build && docker compose up -d
+# Independence: no HyScaler CDN/SaaS; stock live search off — see docs/INDEPENDENCE.md
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hycanvas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hycanvas}
+      POSTGRES_DB: ${POSTGRES_DB:-hycanvas}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hycanvas} -d ${POSTGRES_DB:-hycanvas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # The app runs as uid 10001, never root. Storage created by an earlier image
+  # (or a bind-mount folder Docker created) is root-owned, so this one-shot step
+  # checks the whole tree, repairing mismatched ownership.
+  storage-init:
+    image: hycanvas-local:production
+    pull_policy: never
+    user: "0"
+    entrypoint: ["sh", "-c", "find /app/.data/storage -xdev \\( ! -user 10001 -o ! -group 0 \\) -exec chown -h 10001:0 {} +"]
+    restart: "no"
+    volumes:
+      - storage:/app/.data/storage
+
+  app:
+    image: hycanvas-local:production
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    ports:
+      - "${HYCANVAS_PORT:-8005}:8005"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "8005"
+      DB_AUTO_MIGRATE: "true"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env, for example with openssl rand -hex 32}
+      COOKIE_SECURE: "false"
+      DATABASE_URL: "${EXTERNAL_DATABASE_URL:-postgresql://${POSTGRES_USER:-hycanvas}:${POSTGRES_PASSWORD:-hycanvas}@db:5432/${POSTGRES_DB:-hycanvas}?schema=public}"
+      REDIS_URL: ""
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      LOCAL_STORAGE_PATH: /app/.data/storage
+      LOCALES_DIR: /app/locales
+      BRAND_STARTER_KIT: "off"
+      STOCK_PHOTO_PROVIDER: "off"
+      STOCK_ICON_PROVIDER: "off"
+      GOOGLE_ANALYTICS_ID: ""
+    volumes:
+      - storage:/app/.data/storage
+      - ./deploy/locales:/app/locales:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8005/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  pgdata:
+  storage:
