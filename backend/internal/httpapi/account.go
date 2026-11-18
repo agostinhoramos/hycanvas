@@ -15,7 +15,7 @@ import (
 // GET /api/v1/account/export (a JSON bundle of the user's own data) and
 // DELETE /api/v1/account (re-authenticated, irreversible teardown). Both operate
 // strictly on the authenticated user.
-func mountAccount(api chi.Router, svc *accountdata.Service, acct *accounts.Service, secure bool) {
+func mountAccount(api chi.Router, svc *accountdata.Service, acct *accounts.Service, secure bool, cookiePath string) {
 	api.With(requireAuth(acct)).Get("/account/export", func(w http.ResponseWriter, r *http.Request) {
 		u := userFrom(r.Context())
 		bundle, err := svc.Export(r.Context(), u.ID)
@@ -45,7 +45,7 @@ func mountAccount(api chi.Router, svc *accountdata.Service, acct *accounts.Servi
 			problemWithCode(w, r, http.StatusInternalServerError, "Internal Server Error", "could not delete account", "could_not_delete_account")
 			return
 		}
-		clearAuthCookies(w, secure)
+		clearAuthCookies(w, secure, cookiePath)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

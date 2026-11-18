@@ -437,6 +437,7 @@ func main() {
 			Storage:       store,
 			AccountData:   accountDataSvc,
 			Secure:        secureCookies,
+			CookiePath:    config.CookiePath(cfg.BasePath),
 			Auth:          authPolicy,
 			Captcha:       captchaVerifier,
 			CaptchaConfig: captchaCfg,

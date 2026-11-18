@@ -6,6 +6,16 @@ import { CodedError } from "./errors";
 
 const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8005/api";
 
+/** Normalized HTTP path prefix when served behind a reverse proxy subpath (e.g. /hycanvas). */
+export function normalizePublicBasePath(raw: string | undefined): string {
+  const p = (raw ?? "").trim();
+  if (!p || p === "/") return "";
+  const withSlash = p.startsWith("/") ? p : `/${p}`;
+  return withSlash.replace(/\/$/, "");
+}
+
+export const publicBasePath = normalizePublicBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
+
 export const oc = new HyCanvasClient({ baseUrl, credentials: "include" });
 
 /** Upload one asset with byte-level progress. Same endpoint and JSON shape as
@@ -67,9 +77,21 @@ export function uploadAssetWithProgress(
   });
 }
 
-/** Origin the backend serves from (without the /api suffix). Empty in the
- *  same-origin dist build. Used to resolve relative asset content URLs. */
+/** Path or origin the backend serves from (without the /api suffix). In a
+ *  same-origin dist build at the site root this is empty; with BASE_PATH it is
+ *  e.g. "/hycanvas". Used to resolve relative asset and API paths. */
 export const apiOrigin = baseUrl.replace(/\/api\/?$/, "");
+
+/** Prefix relative API/asset paths with the correct absolute origin + subpath. */
+export function resolveApiPrefix(): string {
+  if (/^https?:\/\//.test(apiOrigin)) return apiOrigin;
+  if (apiOrigin) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${apiOrigin}`;
+  }
+  if (typeof window !== "undefined") return window.location.origin;
+  return "";
+}
 
 /** Send a Blob to a direct-upload grant's target with byte-level progress:
  *  an S3 POST-policy form or the API's raw-body streaming PUT. */
@@ -91,7 +113,7 @@ function splitGrantUrl(uploadUrl: string): { base: string; query: string } {
   const i = uploadUrl.indexOf("?");
   const path = i < 0 ? uploadUrl : uploadUrl.slice(0, i);
   const query = i < 0 ? "" : uploadUrl.slice(i);
-  return { base: /^https?:\/\//.test(path) ? path : `${apiOrigin}${path}`, query };
+  return { base: /^https?:\/\//.test(path) ? path : `${resolveApiPrefix()}${path}`, query };
 }
 
 /** Ask the server how many bytes of this upload it already holds. */
@@ -186,7 +208,7 @@ function sendToGrant(
     const url = grant.uploadUrl ?? "";
     // The api-put URL may be relative when BACKEND_PUBLIC_URL is unset (the
     // same-origin dist build); the S3 URL is always absolute.
-    const absolute = /^https?:\/\//.test(url) ? url : `${apiOrigin}${url}`;
+    const absolute = /^https?:\/\//.test(url) ? url : `${resolveApiPrefix()}${url}`;
     xhr.open(grant.kind === "s3-post" ? "POST" : "PUT", absolute);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
@@ -296,11 +318,11 @@ export function ssoLinkUrl(): string {
  *  (background removal, export) failed on exactly the images people paste in. */
 export function resolveAssetUrl(url: string): string {
   if (/^(https?:\/\/|data:|blob:)/.test(url)) return url;
-  return `${apiOrigin}${url}`;
+  return `${resolveApiPrefix()}${url}`;
 }
 
 /** Route a stock image through our backend proxy so it loads from our origin
  *  (CORS-clean) and can be exported from the canvas without tainting it. */
 export function stockProxyUrl(sourceUrl: string): string {
-  return `${apiOrigin}/api/v1/stock/proxy?url=${encodeURIComponent(sourceUrl)}`;
+  return `${resolveApiPrefix()}/api/v1/stock/proxy?url=${encodeURIComponent(sourceUrl)}`;
 }

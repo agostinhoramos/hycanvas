@@ -1,22 +1,25 @@
 # HyCanvas (build from source, independent self-host)
 
-Self-host HyCanvas **from source** on this server (local Docker build, bundled Postgres). See [docs/INDEPENDENCE.md](docs/INDEPENDENCE.md).
+Self-host HyCanvas **from source** on this server. Public URL: **https://cr.newgus.com/hycanvas/** (nginx subpath).
+
+See [docs/INDEPENDENCE.md](docs/INDEPENDENCE.md) and [deploy/nginx-subpath.example.conf](deploy/nginx-subpath.example.conf).
 
 ## Quick start
 
 ```bash
-# JWT_SECRET in .env (openssl rand -hex 32)
-docker compose build
+docker compose build    # BASE_PATH=/hycanvas is baked into the image
 docker compose up -d
 ```
 
-Open **http://localhost:1669** (or `HYCANVAS_PORT` in `.env`).
+Direct port (debug): `http://localhost:1669` — production users use the HTTPS URL above.
 
-## Publicar / clonar o vosso GitHub
+## Reverse proxy requirements
 
-Ver [docs/PUBLISH-GITHUB.md](docs/PUBLISH-GITHUB.md). Fork local: [FORK.md](FORK.md).
+- `APP_URL` and `FRONTEND_URL` = `https://cr.newgus.com/hycanvas` (no trailing slash)
+- `BASE_PATH=/hycanvas`, `COOKIE_SECURE=true`
+- nginx must forward WebSocket upgrades (`/hycanvas/realtime`)
 
-## Update (após git pull do vosso repositório)
+## Update
 
 ```bash
 git pull origin main
@@ -24,18 +27,12 @@ docker compose build
 docker compose up -d
 ```
 
+## Publicar no GitHub
+
+[docs/PUBLISH-GITHUB.md](docs/PUBLISH-GITHUB.md)
+
 ## Stop
 
 ```bash
 docker compose down
 ```
-
-## Configuration
-
-| Item | Notes |
-|------|--------|
-| [`.env`](.env) | `APP_URL` must match public URL |
-| [`docker-compose.yml`](docker-compose.yml) | Image `hycanvas-local:production` |
-| [`deploy/locales/`](deploy/locales/) | Optional UI strings via `LOCALES_DIR` |
-
-TLS, S3, external Postgres: [DOCKER_SETUP.md](DOCKER_SETUP.md).

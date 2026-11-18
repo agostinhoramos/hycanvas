@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
+const basePath = (process.env.BASE_PATH || "").replace(/\/$/, "");
+const distApiBase = basePath ? `${basePath}/api` : "/api";
+
 const nextConfig: NextConfig = {
+  ...(basePath ? { basePath } : {}),
   reactStrictMode: true,
   // Keep `next dev` from rewriting frontend/AGENTS.md: the repository owns
   // that file, and the generated block breaks its house style.
@@ -26,9 +30,10 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   env: {
+    NEXT_PUBLIC_BASE_PATH: basePath,
     NEXT_PUBLIC_BACKEND_URL:
       process.env.BUILD_DIST === "true"
-        ? "/api"
+        ? distApiBase
         : process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8005/api",
   },
   // Pretty editor URLs (/editor/<id>) are a SERVER rewrite to the exported

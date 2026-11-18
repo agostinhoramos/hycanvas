@@ -21,7 +21,7 @@ const oidcStateCookie = "oc_oidc"
 // authorization-code + PKCE redirect/callback. start sets a signed state cookie
 // and redirects to the IdP; callback verifies it, exchanges the code, links the
 // account (LoginWithOidc), sets the session cookies, and redirects to the app.
-func mountOIDC(api chi.Router, svc *oidc.Service, acct *accounts.Service, secure bool, policy config.AuthPolicy, cap config.CaptchaConfig) {
+func mountOIDC(api chi.Router, svc *oidc.Service, acct *accounts.Service, secure bool, cookiePath string, policy config.AuthPolicy, cap config.CaptchaConfig) {
 	// The providers endpoint doubles as the auth-config endpoint the login page
 	// reads, so it always mounts and reports the full policy plus captcha config.
 	api.Get("/auth/providers", oidcProvidersHandler(svc, policy, cap))
@@ -36,11 +36,11 @@ func mountOIDC(api chi.Router, svc *oidc.Service, acct *accounts.Service, secure
 			http.Redirect(w, r, frontendURL()+"/login?error=oidc_disabled", http.StatusFound)
 		}
 	}
-	api.Get("/auth/oidc/start", oidcGate(oidcStartHandler(svc, secure)))
-	api.Get("/auth/oidc/callback", oidcGate(oidcCallbackHandler(svc, acct, secure, policy)))
+	api.Get("/auth/oidc/start", oidcGate(oidcStartHandler(svc, secure, cookiePath)))
+	api.Get("/auth/oidc/callback", oidcGate(oidcCallbackHandler(svc, acct, secure, cookiePath, policy)))
 	// Connect/disconnect SSO for an already-authenticated user (link flow). The
 	// callback above handles both sign-in and connect via the signed state.
-	api.With(requireAuth(acct)).Get("/auth/oidc/link", oidcLinkStartHandler(svc, secure))
+	api.With(requireAuth(acct)).Get("/auth/oidc/link", oidcLinkStartHandler(svc, secure, cookiePath))
 	api.With(requireAuth(acct)).Get("/auth/oidc/identity", oidcIdentityHandler(svc, acct))
 	api.With(requireAuth(acct)).Delete("/auth/oidc/identity", oidcUnlinkHandler(acct))
 }
@@ -84,7 +84,10 @@ func oidcProvidersHandler(svc *oidc.Service, policy config.AuthPolicy, cap confi
 	}
 }
 
-func oidcStartHandler(svc *oidc.Service, secure bool) http.HandlerFunc {
+func oidcStartHandler(svc *oidc.Service, secure bool, cookiePath string) http.HandlerFunc {
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		authURL, cookie, err := svc.AuthURL()
 		if err != nil {
@@ -92,21 +95,24 @@ func oidcStartHandler(svc *oidc.Service, secure bool) http.HandlerFunc {
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: oidcStateCookie, Value: cookie, Path: "/", HttpOnly: true,
+			Name: oidcStateCookie, Value: cookie, Path: cookiePath, HttpOnly: true,
 			SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: 600,
 		})
 		http.Redirect(w, r, authURL, http.StatusFound)
 	}
 }
 
-func oidcCallbackHandler(svc *oidc.Service, acct *accounts.Service, secure bool, policy config.AuthPolicy) http.HandlerFunc {
+func oidcCallbackHandler(svc *oidc.Service, acct *accounts.Service, secure bool, cookiePath string, policy config.AuthPolicy) http.HandlerFunc {
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		front := frontendURL()
 		// Clear the state cookie regardless of outcome. Mirror the attributes it
 		// was set with (HttpOnly/Secure/SameSite) so the deletion matches the
 		// original cookie and carries the same transport guarantees.
 		http.SetCookie(w, &http.Cookie{
-			Name: oidcStateCookie, Value: "", Path: "/", HttpOnly: true,
+			Name: oidcStateCookie, Value: "", Path: cookiePath, HttpOnly: true,
 			SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: -1,
 		})
 
@@ -173,13 +179,16 @@ func oidcCallbackHandler(svc *oidc.Service, acct *accounts.Service, secure bool,
 			}
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		http.Redirect(w, r, front+"/dashboard", http.StatusFound)
 	}
 }
 
 // oidcLinkStartHandler begins connecting an SSO identity to the signed-in user.
-func oidcLinkStartHandler(svc *oidc.Service, secure bool) http.HandlerFunc {
+func oidcLinkStartHandler(svc *oidc.Service, secure bool, cookiePath string) http.HandlerFunc {
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := userFrom(r.Context())
 		authURL, cookie, err := svc.LinkURL(u.ID)
@@ -188,7 +197,7 @@ func oidcLinkStartHandler(svc *oidc.Service, secure bool) http.HandlerFunc {
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
-			Name: oidcStateCookie, Value: cookie, Path: "/", HttpOnly: true,
+			Name: oidcStateCookie, Value: cookie, Path: cookiePath, HttpOnly: true,
 			SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: 600,
 		})
 		http.Redirect(w, r, authURL, http.StatusFound)

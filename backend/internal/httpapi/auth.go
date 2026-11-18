@@ -28,7 +28,7 @@ type authedUser struct {
 // mountAuth attaches the auth + me routes (matching /api/v1/auth/* and /api/v1/me).
 // `policy` decides which method-specific routes are live; a disabled route
 // answers 403 rather than being absent, so a client gets a clear reason.
-func mountAuth(api chi.Router, svc *accounts.Service, secure bool, policy config.AuthPolicy, cap captcha.Verifier) {
+func mountAuth(api chi.Router, svc *accounts.Service, secure bool, cookiePath string, policy config.AuthPolicy, cap captcha.Verifier) {
 	// gate wraps a handler so it returns 403 when its method is turned off. The
 	// route still exists (a 404 would look like a version mismatch); the body
 	// says which method is disabled.
@@ -58,17 +58,17 @@ func mountAuth(api chi.Router, svc *accounts.Service, secure bool, policy config
 		}
 	}
 	api.Route("/auth", func(r chi.Router) {
-		r.Post("/signup", gate(policy.PasswordSignup, protect(signupHandler(svc, secure))))
-		r.Post("/login", gate(policy.PasswordLogin, protect(loginHandler(svc, secure))))
-		r.Post("/refresh", refreshHandler(svc, secure))
-		r.With(requireAuth(svc)).Post("/logout", logoutHandler(svc, secure))
+		r.Post("/signup", gate(policy.PasswordSignup, protect(signupHandler(svc, secure, cookiePath))))
+		r.Post("/login", gate(policy.PasswordLogin, protect(loginHandler(svc, secure, cookiePath))))
+		r.Post("/refresh", refreshHandler(svc, secure, cookiePath))
+		r.With(requireAuth(svc)).Post("/logout", logoutHandler(svc, secure, cookiePath))
 		// MFA (doc 15 FR-5). enroll/confirm/disable are session-guarded; verify is
 		// public (it trades the login challenge token for a session). Left ungated:
 		// an OIDC account can still carry a second factor.
 		r.With(requireAuth(svc)).Post("/mfa/enroll", mfaEnrollHandler(svc))
 		r.With(requireAuth(svc)).Post("/mfa/confirm", mfaConfirmHandler(svc))
 		r.With(requireAuth(svc)).Post("/mfa/disable", mfaDisableHandler(svc))
-		r.Post("/mfa/verify", mfaVerifyHandler(svc, secure))
+		r.Post("/mfa/verify", mfaVerifyHandler(svc, secure, cookiePath))
 		// Email flows (doc 15 FR-1). Request endpoints are enumeration-safe (204).
 		// verify-email stays ungated (any account may confirm its address); reset
 		// follows password login (no point resetting a password you cannot use).
@@ -84,7 +84,7 @@ func mountAuth(api chi.Router, svc *accounts.Service, secure bool, policy config
 		// request form is CAPTCHA-protected; the redeem step (token from email) is not.
 		magicOn := policy.MagicLinkLogin || policy.MagicLinkSignup
 		r.Post("/magic-link/request", gate(magicOn, protect(magicRequestHandler(svc, policy))))
-		r.Post("/magic-link", gate(magicOn, magicLinkHandler(svc, secure, policy)))
+		r.Post("/magic-link", gate(magicOn, magicLinkHandler(svc, secure, cookiePath, policy)))
 		// Dev-only mail outbox (no SMTP wired); forbidden when cookies are secure
 		// (production).
 		r.Get("/dev/outbox", devOutboxHandler(svc, secure))
@@ -153,7 +153,7 @@ func sessionsHandler(svc *accounts.Service) http.HandlerFunc {
 	}
 }
 
-func signupHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
+func signupHandler(svc *accounts.Service, secure bool, cookiePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Email    string `json:"email"`
@@ -176,12 +176,12 @@ func signupHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
 			}
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		writeJSON(w, http.StatusCreated, map[string]any{"user": user, "workspace": ws})
 	}
 }
 
-func loginHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
+func loginHandler(svc *accounts.Service, secure bool, cookiePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Email    string `json:"email"`
@@ -210,12 +210,12 @@ func loginHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
 			problemWithCode(w, r, http.StatusUnauthorized, "Unauthorized", "invalid email or password", "invalid_email_or_password")
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		writeJSON(w, http.StatusOK, map[string]any{"user": user})
 	}
 }
 
-func refreshHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
+func refreshHandler(svc *accounts.Service, secure bool, cookiePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(refreshCookie)
 		if err != nil || c.Value == "" {
@@ -233,22 +233,22 @@ func refreshHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
 			// despite a healthy session; a bare 401 lets the jar keep its live
 			// cookie and the next request refreshes cleanly.
 			if errors.Is(err, accounts.ErrReuseDetected) || errors.Is(err, accounts.ErrSessionRevoked) {
-				clearAuthCookies(w, secure)
+				clearAuthCookies(w, secure, cookiePath)
 			}
 			problemWithCode(w, r, http.StatusUnauthorized, "Unauthorized", "invalid refresh token", "invalid_refresh_token")
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 
-func logoutHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
+func logoutHandler(svc *accounts.Service, secure bool, cookiePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if u := userFrom(r.Context()); u != nil {
 			_ = svc.Logout(r.Context(), u.SessionID)
 		}
-		clearAuthCookies(w, secure)
+		clearAuthCookies(w, secure, cookiePath)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
@@ -314,7 +314,7 @@ func mfaDisableHandler(svc *accounts.Service) http.HandlerFunc {
 	}
 }
 
-func mfaVerifyHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
+func mfaVerifyHandler(svc *accounts.Service, secure bool, cookiePath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			MfaToken string `json:"mfaToken"`
@@ -329,7 +329,7 @@ func mfaVerifyHandler(svc *accounts.Service, secure bool) http.HandlerFunc {
 			mfaProblem(w, r, err)
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		writeJSON(w, http.StatusOK, map[string]any{"user": user})
 	}
 }
@@ -422,7 +422,7 @@ func magicRequestHandler(svc *accounts.Service, policy config.AuthPolicy) http.H
 	}
 }
 
-func magicLinkHandler(svc *accounts.Service, secure bool, policy config.AuthPolicy) http.HandlerFunc {
+func magicLinkHandler(svc *accounts.Service, secure bool, cookiePath string, policy config.AuthPolicy) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Token string `json:"token"`
@@ -438,7 +438,7 @@ func magicLinkHandler(svc *accounts.Service, secure bool, policy config.AuthPoli
 			problemWithCode(w, r, http.StatusUnauthorized, "Unauthorized", "invalid or expired link", "invalid_or_expired_link")
 			return
 		}
-		setAuthCookies(w, tokens.Access, tokens.Refresh, secure)
+		setAuthCookies(w, tokens.Access, tokens.Refresh, secure, cookiePath)
 		writeJSON(w, http.StatusOK, map[string]any{"user": user})
 	}
 }

@@ -43,6 +43,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BASE_PATH: /hycanvas
     restart: unless-stopped
     depends_on:
       db:
@@ -52,14 +54,14 @@ services:
     ports:
       - "${HYCANVAS_PORT:-8005}:8005"
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       NODE_ENV: production
       PORT: "8005"
       DB_AUTO_MIGRATE: "true"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env, for example with openssl rand -hex 32}
-      COOKIE_SECURE: "false"
+      BASE_PATH: /hycanvas
+      COOKIE_SECURE: "true"
       DATABASE_URL: "${EXTERNAL_DATABASE_URL:-postgresql://${POSTGRES_USER:-hycanvas}:${POSTGRES_PASSWORD:-hycanvas}@db:5432/${POSTGRES_DB:-hycanvas}?schema=public}"
       REDIS_URL: ""
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}

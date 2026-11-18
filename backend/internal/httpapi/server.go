@@ -74,6 +74,7 @@ type Deps struct {
 	Storage       storage.Driver
 	AccountData   *accountdata.Service
 	Secure        bool                 // set Secure on session cookies (production / HTTPS)
+	CookiePath    string               // http.Cookie Path (BASE_PATH behind a reverse proxy)
 	Auth          config.AuthPolicy    // which sign-in methods and signups are enabled
 	Captcha       captcha.Verifier     // optional CAPTCHA gate on the auth forms; nil = off
 	CaptchaConfig config.CaptchaConfig // public captcha config (provider/site key) for the sign-in page
@@ -133,7 +134,7 @@ func NewRouter(d Deps) http.Handler {
 		// Ported: auth + accounts (login / logout / me). Other modules mount here
 		// as they are migrated; the reverse proxy keeps unported routes on Node.
 		if d.Accounts != nil {
-			mountAuth(api, d.Accounts, d.Secure, d.Auth, d.Captcha)
+			mountAuth(api, d.Accounts, d.Secure, d.CookiePath, d.Auth, d.Captcha)
 			mountWorkspaces(api, d.Accounts)
 			mountMembers(api, d.Accounts)
 		}
@@ -148,10 +149,10 @@ func NewRouter(d Deps) http.Handler {
 			mountAPIKeys(api, d.APIKeys, d.Accounts)
 		}
 		if d.Accounts != nil && d.AccountData != nil {
-			mountAccount(api, d.AccountData, d.Accounts, d.Secure)
+			mountAccount(api, d.AccountData, d.Accounts, d.Secure, d.CookiePath)
 		}
 		if d.Accounts != nil && d.OIDC != nil {
-			mountOIDC(api, d.OIDC, d.Accounts, d.Secure, d.Auth, d.CaptchaConfig)
+			mountOIDC(api, d.OIDC, d.Accounts, d.Secure, d.CookiePath, d.Auth, d.CaptchaConfig)
 		}
 		if d.Accounts != nil && d.Persistence != nil {
 			mountPersistence(api, d.Persistence, d.Accounts, d.Sharing, d.Brand)

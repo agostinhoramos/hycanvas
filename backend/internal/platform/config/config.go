@@ -50,6 +50,9 @@ type Config struct {
 	// page at runtime. Empty (the default) means no analytics, so a self-hosted
 	// instance ships tracking-free unless the operator opts in.
 	AnalyticsGAID string
+	// BasePath is the URL path prefix when served behind a reverse proxy subpath
+	// (e.g. "/hycanvas"). Empty when mounted at the site root.
+	BasePath string
 }
 
 // CaptchaConfig configures a CAPTCHA on the auth forms (login, signup,
@@ -111,6 +114,7 @@ func Load() (Config, error) {
 			MinScore:  envFloat("CAPTCHA_MIN_SCORE", 0.5),
 		},
 		AnalyticsGAID: strings.TrimSpace(os.Getenv("GOOGLE_ANALYTICS_ID")),
+		BasePath:      NormalizeBasePath(os.Getenv("BASE_PATH")),
 	}
 	if c.DatabaseURL == "" {
 		return c, ErrDatabaseURLMissing
@@ -186,4 +190,25 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// NormalizeBasePath returns a leading-slash path without a trailing slash, or
+// "" when unset/root. Used for cookie Path and operator docs.
+func NormalizeBasePath(raw string) string {
+	p := strings.TrimSpace(raw)
+	if p == "" || p == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return strings.TrimRight(p, "/")
+}
+
+// CookiePath returns the http.Cookie Path value for session cookies.
+func CookiePath(basePath string) string {
+	if basePath == "" {
+		return "/"
+	}
+	return basePath
 }

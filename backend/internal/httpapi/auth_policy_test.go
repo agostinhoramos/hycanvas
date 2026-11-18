@@ -21,7 +21,7 @@ import (
 func TestDisabledAuthRoutesReturn403(t *testing.T) {
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
-		mountAuth(api, accounts.NewService(nil, "s"), false, config.AuthPolicy{}, nil) // all off, no captcha
+		mountAuth(api, accounts.NewService(nil, "s"), false, "/", config.AuthPolicy{}, nil) // all off, no captcha
 	})
 	srv := httptest.NewServer(r)
 	defer srv.Close()
@@ -51,7 +51,7 @@ func TestProvidersEndpointReportsPolicy(t *testing.T) {
 	policy := config.AuthPolicy{PasswordLogin: false, MagicLinkLogin: true, OidcLogin: true, OidcSignup: true}
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
-		mountOIDC(api, oidc.NewService("s"), accounts.NewService(nil, "s"), false, policy, config.CaptchaConfig{})
+		mountOIDC(api, oidc.NewService("s"), accounts.NewService(nil, "s"), false, "/", policy, config.CaptchaConfig{})
 	})
 	srv := httptest.NewServer(r)
 	defer srv.Close()
@@ -85,7 +85,7 @@ func (s stubVerifier) Verify(_ context.Context, _, _ string) error { return s.er
 func TestCaptchaGuardRejects(t *testing.T) {
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
-		mountAuth(api, accounts.NewService(nil, "s"), false,
+		mountAuth(api, accounts.NewService(nil, "s"), false, "/",
 			config.AuthPolicy{PasswordLogin: true, PasswordSignup: true, MagicLinkLogin: true},
 			stubVerifier{err: captcha.ErrFailed})
 	})
@@ -108,7 +108,7 @@ func TestCaptchaGuardRejects(t *testing.T) {
 func TestCaptchaGuardNilIsPassthrough(t *testing.T) {
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
-		mountAuth(api, accounts.NewService(nil, "s"), false, config.AuthPolicy{PasswordLogin: true}, nil)
+		mountAuth(api, accounts.NewService(nil, "s"), false, "/", config.AuthPolicy{PasswordLogin: true}, nil)
 	})
 	srv := httptest.NewServer(r)
 	defer srv.Close()

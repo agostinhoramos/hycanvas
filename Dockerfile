@@ -8,12 +8,14 @@
 # ---------------------------------------------------------------------------
 FROM node:24-bookworm AS frontend
 WORKDIR /app
+ARG BASE_PATH=
+ENV BASE_PATH=${BASE_PATH}
 COPY . .
 # The lockfile records every platform's native deps (lightningcss, swc, rollup)
 # with cpu/os metadata, so `npm ci` installs the right ones for this build
 # platform and the image stays exactly reproducible.
 RUN npm ci --no-audit --no-fund
-# build:dist -w frontend bakes NEXT_PUBLIC_BACKEND_URL=/api into the export.
+# build:dist -w frontend bakes NEXT_PUBLIC_BACKEND_URL from BASE_PATH into the export.
 RUN npm run build:packages && npm run build:dist -w frontend
 
 # ---------------------------------------------------------------------------

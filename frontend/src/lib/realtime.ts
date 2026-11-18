@@ -9,7 +9,7 @@
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import { apiOrigin } from "@/lib/sdk";
+import { publicBasePath, resolveApiPrefix } from "@/lib/sdk";
 import { emitNotify } from "@/lib/realtimeNotify";
 import { usePresence, type ConnectionState, type LockHolder, type Peer, type PeerState } from "@/store/presence";
 import type { DesignDoc } from "@/lib/ydoc";
@@ -154,12 +154,11 @@ function fromBase64(b64: string): Uint8Array {
  *  `branch` joins an in-CRDT branch session (doc 16 FR-10): its own room and
  *  its own journaled lineage, fully isolated from the main room. */
 function realtimeUrl(designId: string, branch: string | null): string {
-  // apiOrigin is the backend origin without the /api suffix (empty in the
-  // same-origin dist build, where we fall back to the page's own origin).
-  const origin = apiOrigin || (typeof window !== "undefined" ? window.location.origin : "");
-  const wsBase = origin.replace(/^http/, "ws"); // http->ws, https->wss
+  const httpBase = resolveApiPrefix() || (typeof window !== "undefined" ? window.location.origin : "");
+  const wsBase = httpBase.replace(/^http/, "ws");
   const branchQ = branch ? `&branch=${encodeURIComponent(branch)}` : "";
-  return `${wsBase}/realtime?design=${encodeURIComponent(designId)}${branchQ}`;
+  const prefix = publicBasePath;
+  return `${wsBase}${prefix}/realtime?design=${encodeURIComponent(designId)}${branchQ}`;
 }
 
 /**

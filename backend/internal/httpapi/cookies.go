@@ -10,9 +10,12 @@ const (
 	refreshMaxAge = 30 * 24 * 60 * 60 // 30 days
 )
 
-func setAuthCookies(w http.ResponseWriter, access, refresh string, secure bool) {
+func setAuthCookies(w http.ResponseWriter, access, refresh string, secure bool, cookiePath string) {
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name: accessCookie, Value: access, Path: "/",
+		Name: accessCookie, Value: access, Path: cookiePath,
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: accessMaxAge,
 	})
 	// An empty refresh means "keep the existing cookie": the tolerated
@@ -22,15 +25,18 @@ func setAuthCookies(w http.ResponseWriter, access, refresh string, secure bool) 
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: refreshCookie, Value: refresh, Path: "/",
+		Name: refreshCookie, Value: refresh, Path: cookiePath,
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: refreshMaxAge,
 	})
 }
 
-func clearAuthCookies(w http.ResponseWriter, secure bool) {
+func clearAuthCookies(w http.ResponseWriter, secure bool, cookiePath string) {
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
 	for _, name := range []string{accessCookie, refreshCookie} {
 		http.SetCookie(w, &http.Cookie{
-			Name: name, Value: "", Path: "/",
+			Name: name, Value: "", Path: cookiePath,
 			HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,
 		})
 	}
